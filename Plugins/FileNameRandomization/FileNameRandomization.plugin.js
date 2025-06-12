@@ -1,7 +1,7 @@
 /**
  * @name FileNameRandomization
  * @author kaan
- * @version 1.2.2 
+ * @version 1.2.3
  * @description Randomizes uploaded file names for enhanced privacy and organization. Users can opt for a unique random string, a Unix timestamp, or a custom format. Temporary disable per file.
  */
 
@@ -39,26 +39,7 @@ const FoodIcon = ({size = 24, color = "var(--interactive-normal)", ...props}) =>
     }));
 };
 
-// Ensure the old DataStore proxy that might have saved `shouldIncognito` is fully removed or commented out.
-// The code below does NOT use DataStore for the temporary exemption feature.
-/*
-const DataStore = new Proxy(
-    {},
-    {
-        get: (_, key) => {
-            return Data.load(key);
-        },
-        set: (_, key, value) => {
-            Data.save(key, value);
-            return true;
-        },
-        deleteProperty: (_, key) => {
-            Data.delete(key);
-            return true;
-        },
-    }
-);
-*/
+// Removed all DataStore proxy code - we're not using it for temporary exemption
 
 const IncognitoButton = ({ pluginInstance }) => {
     const [isExempt, setIsExempt] = useState(pluginInstance.isNextUploadExempt);
@@ -98,7 +79,7 @@ class FileNameRandomization {
             preserveOriginalName: false,
             caseOption: 'mixed',
         };
-        this.isNextUploadExempt = false; 
+        this.isNextUploadExempt = false; // In-memory state only, not persisted
         this.uiUpdateCallbacks = new Set(); 
     }
 
@@ -119,16 +100,17 @@ class FileNameRandomization {
 
     toggleExemption() {
         this.isNextUploadExempt = !this.isNextUploadExempt;
-        this.notifyUIUpdate(); 
-        // This method does NOT save any 'shouldIncognito' or 'isNextUploadExempt' state to Data.
+        this.notifyUIUpdate();
+        // No persistence - temporary state only
     }
 
     start() {
-        // Attempt to remove any old "shouldIncognito" setting from the JSON file.
+        // Clean up any old data that might have been saved
         try {
             Data.delete("shouldIncognito");
+            Data.delete("isNextUploadExempt");
         } catch (error) {
-            console.error("FileNameRandomization: Failed to delete old 'shouldIncognito' setting:", error);
+            console.error("FileNameRandomization: Error cleaning old data:", error);
         }
 
         this.Main = Patcher.before(FileUploads, "uploadFiles", this.handleFileUpload.bind(this));
@@ -143,13 +125,15 @@ class FileNameRandomization {
 
     stop() {
         Patcher.unpatchAll();
-        this.uiUpdateCallbacks.clear(); 
+        this.uiUpdateCallbacks.clear();
+        this.isNextUploadExempt = false; // Reset the state when plugin stops
     }
 
     handleFileUpload(_, args) {
         if (this.isNextUploadExempt) {
-            this.isNextUploadExempt = false; 
-            this.notifyUIUpdate(); 
+            // Reset to default after one use
+            this.isNextUploadExempt = false;
+            this.notifyUIUpdate();
             return; 
         }
 
@@ -159,22 +143,18 @@ class FileNameRandomization {
     }
 
     getSetting(key) {
-        // Ensure we are not trying to load 'shouldIncognito' here for other purposes.
-        // This method is for loading settings defined in defaultSettings.
-        if (key === "shouldIncognito") {
-            // This key should no longer be used for plugin logic.
-            // If it's somehow still being requested, return a benign default or undefined.
-            return undefined; 
+        // Filter out any attempts to access exemption state from settings
+        if (key === "shouldIncognito" || key === "isNextUploadExempt") {
+            return undefined;
         }
         return Data.load(key) ?? this.defaultSettings[key];
     }
 
     setSetting(key, value) {
-        // Ensure we are not trying to save 'shouldIncognito' here.
-        // This method is for saving settings defined in the settings panel.
-        if (key === "shouldIncognito") {
-            console.warn("FileNameRandomization: Attempted to save deprecated 'shouldIncognito' setting. Ignoring.");
-            return; // Do not save 'shouldIncognito'
+        // Prevent saving exemption state
+        if (key === "shouldIncognito" || key === "isNextUploadExempt") {
+            console.warn(`FileNameRandomization: Attempted to save temporary state '${key}'. Ignoring.`);
+            return;
         }
         return Data.save(key, value);
     }
@@ -234,13 +214,13 @@ class FileNameRandomization {
             const [caseOption, setCaseOption] = useState(this.getSetting('caseOption') || 'mixed');
 
             const onSwitch = (id, value) => {
-                this.setSetting(id, value); // Calls the modified setSetting
+                this.setSetting(id, value);
                 if (id === 'useTimestamp') setUseTimestamp(value);
                 if (id === 'preserveOriginalName') setPreserveOriginalName(value);
             };
 
             const onChange = (id, value) => {
-                this.setSetting(id, value); // Calls the modified setSetting
+                this.setSetting(id, value);
                 if (id === 'prefix') setPrefix(value);
                 if (id === 'suffix') setSuffix(value);
                 if (id === 'customFormat') setCustomFormat(value);
@@ -250,7 +230,7 @@ class FileNameRandomization {
                 const val = parseInt(value, 10);
                 if (!isNaN(val) && val > 0) {
                     setRandomLength(val);
-                    this.setSetting('randomLength', val); // Calls the modified setSetting
+                    this.setSetting('randomLength', val);
                 } else if (value === '') {
                      setRandomLength('');
                 }
@@ -258,7 +238,7 @@ class FileNameRandomization {
 
             const onCaseOptionChange = (value) => {
                 setCaseOption(value);
-                this.setSetting('caseOption', value); // Calls the modified setSetting
+                this.setSetting('caseOption', value);
             };
 
             return React.createElement("div", {}, React.createElement(FormSwitch, {
